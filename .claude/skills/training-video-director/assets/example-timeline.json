@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "title": "Creating your first project",
+  "summary": "How to create a new project in Acme Projects and save your settings.",
+  "audience": "New team members using Acme Projects for the first time",
+  "metadata_file": "example-metadata.json",
+  "voice": { "words_per_minute": 150 },
+  "total_duration": 43.2,
+  "segments": [
+    {
+      "id": 1, "type": "title_card", "start": 0, "duration": 3.5, "script": "",
+      "text": { "title": "Creating your first project", "subtitle": "Up and running in under a minute" }
+    },
+    {
+      "id": 2, "type": "cartoon_talking", "start": 3.5, "duration": 7.0,
+      "script": "Hi! In this video, you'll create your first project and save your settings. Let's go.",
+      "notes": "Intro: what the viewer will be able to do by the end."
+    },
+    {
+      "id": 3, "type": "screen_still", "start": 10.5, "duration": 7.5,
+      "script": "This is your dashboard. Every project starts with the New Project button, up here in the top left.",
+      "source": { "recording_id": 1, "file_name": "recording_20261021_100000.mp4", "time": 2.5 },
+      "props": [
+        { "type": "arrow", "start": 2.0, "duration": 5.0, "target": [212, 148], "from": "bottom-right", "label": "New Project", "event_id": 1 }
+      ],
+      "notes": "Orient the viewer before anything moves."
+    },
+    {
+      "id": 4, "type": "screen_recording", "start": 18.0, "duration": 8.5,
+      "script": "Click New Project, then click the name field and type a name. When it looks right, click Create.",
+      "source": { "recording_id": 1, "file_name": "recording_20261021_100000.mp4", "clip_start": 2.5, "clip_end": 11.0, "speed": 1.0 },
+      "props": [
+        { "type": "arrow", "start": 0, "duration": 0.9, "target": [212, 148], "from": "bottom-right", "event_id": 1 },
+        { "type": "click_ripple", "start": 0.6, "duration": 0.6, "target": [212, 148], "event_id": 1 },
+        { "type": "arrow", "start": 1.7, "duration": 1.5, "target": [640, 300], "from": "bottom", "label": "Name", "event_id": 2 },
+        { "type": "click_ripple", "start": 2.9, "duration": 0.6, "target": [640, 300], "event_id": 2 },
+        { "type": "zoom", "start": 3.2, "duration": 3.6, "center": [640, 300], "scale": 1.6 },
+        { "type": "typing_caption", "start": 3.5, "duration": 3.2, "text": "my-first-project", "event_id": 3 },
+        { "type": "arrow", "start": 5.9, "duration": 1.5, "target": [900, 520], "from": "top-left", "label": "Create", "event_id": 4 },
+        { "type": "click_ripple", "start": 7.1, "duration": 0.6, "target": [900, 520], "event_id": 4 }
+      ],
+      "notes": "Recording 11.0-15.8s is the page loading; trimmed out."
+    },
+    {
+      "id": 5, "type": "screen_still", "start": 26.5, "duration": 5.5,
+      "script": "Your project is ready. Next, let's save your settings so they stick.",
+      "presenter": "talking",
+      "source": { "recording_id": 1, "file_name": "recording_20261021_100000.mp4", "time": 15.8 },
+      "notes": "Bridge between steps, with the presenter in the corner."
+    },
+    {
+      "id": 6, "type": "screen_recording", "start": 32.0, "duration": 3.7,
+      "script": "Open Settings, then press Control S to save.",
+      "source": { "recording_id": 1, "file_name": "recording_20261021_100000.mp4", "clip_start": 15.8, "clip_end": 19.5, "speed": 1.0 },
+      "props": [
+        { "type": "arrow", "start": 0, "duration": 0.9, "target": [1180, 60], "from": "bottom-left", "label": "Settings", "event_id": 5 },
+        { "type": "click_ripple", "start": 0.6, "duration": 0.6, "target": [1180, 60], "event_id": 5 },
+        { "type": "key_badge", "start": 2.2, "duration": 1.5, "keys": ["Ctrl", "S"], "event_id": 6 }
+      ]
+    },
+    {
+      "id": 7, "type": "cartoon_talking", "start": 35.7, "duration": 5.5,
+      "script": "That's it. You created a project, named it, and saved with Control S.",
+      "notes": "Recap."
+    },
+    {
+      "id": 8, "type": "cartoon_silent", "start": 41.2, "duration": 2.0, "script": ""
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Screen recordings, their metadata (typed text, window titles), timelines and
+# rendered videos are personal: never commit them.
+recordings/
+*.mp4
+*.wav
+director_frames/
+.build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor and local settings
+.vscode/
+.idea/
+.claude/settings.local.json
+.DS_Store
+Thumbs.db

@@ -1,0 +1,8 @@
+mss
+numpy
+opencv-python
+pynput
+pillow
+pyttsx3
+imageio-ffmpeg
+kokoro-onnx

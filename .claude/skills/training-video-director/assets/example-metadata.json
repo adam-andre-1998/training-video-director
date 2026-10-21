@@ -1,0 +1,23 @@
+{
+    "recordings": [
+        {
+            "id": 1,
+            "file_name": "recording_20261021_100000.mp4",
+            "duration": 20.0,
+            "description": "Create a project and save settings",
+            "created_at": "2026-10-21T10:00:00-10:00",
+            "resolution": [1280, 720],
+            "fps": 15,
+            "screen": {"left": 0, "top": 0, "width": 2560, "height": 1440},
+            "scale": 0.5,
+            "events": [
+                {"id": 1, "action": "click", "timestamp": 3.1, "frame": 46, "location": [212, 148], "button": "left", "window": "Acme Projects"},
+                {"id": 2, "action": "click", "timestamp": 5.4, "frame": 81, "location": [640, 300], "button": "left", "window": "Acme Projects"},
+                {"id": 3, "action": "type", "start_timestamp": 6.0, "end_timestamp": 8.2, "start_frame": 90, "end_frame": 123, "text": "my-first-project", "window": "Acme Projects"},
+                {"id": 4, "action": "click", "timestamp": 9.6, "frame": 144, "location": [900, 520], "button": "left", "window": "Acme Projects"},
+                {"id": 5, "action": "click", "timestamp": 16.4, "frame": 246, "location": [1180, 60], "button": "left", "window": "Acme Projects"},
+                {"id": 6, "action": "type", "start_timestamp": 18.0, "end_timestamp": 18.0, "start_frame": 270, "end_frame": 270, "text": "[ctrl+s]", "window": "Acme Projects - Settings"}
+            ]
+        }
+    ]
+}
