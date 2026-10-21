@@ -33,21 +33,23 @@ The paths below are relative to this skill's folder.
 - `references/directing-guide.md`: structure, pacing, props and script
   rules. **Read it before planning.**
 - `scripts/inspect_recordings.py`: prints a readable event log for each
-  recording, with idle gaps marked.
+  recording, with idle gaps marked, and saves a screenshot at every click
+  and typing action so you can see what was clicked.
 - `scripts/validate_timeline.py`: checks a timeline against metadata.json
   and fixes start times.
 - `assets/example-timeline.json` and `assets/example-metadata.json`: a
   complete worked example. It has no video file, so the validator warns
   about that, and only that.
 
-Both scripts use only the Python standard library. Run them with whatever
-`python` is already available. Don't create a virtual environment or install
-packages.
+Run the scripts with the `python` that's already available. **Don't create a
+virtual environment.** The validator needs only the standard library. The
+inspector's screenshots need `opencv-python`, which is in the project's
+requirements.txt. If the inspector says it's missing, run
+`pip install opencv-python` once, then rerun the inspector.
 
-**Work from metadata.json, not the video files.** It already holds every
-click (time and coordinates) and every typing action (time span and text),
-which is everything the timeline needs. Don't open, play, screenshot or
-extract frames from the recordings.
+Timing and coordinates always come from metadata.json. The screenshots are
+for seeing *what* each click hit, such as button labels, menus and fields.
+Don't open or play the video files any other way.
 
 ## Inputs
 
@@ -73,12 +75,39 @@ extract frames from the recordings.
    python <skill-dir>/scripts/inspect_recordings.py <path/to/metadata.json>
    ```
 
-   This prints each recording's events in order, with idle gaps marked. (If
-   Python can't be run, read metadata.json directly instead.) Work out what
-   each click does from the user's context, the recording descriptions,
-   window titles, the typed text and the order of events. Where you can't
-   tell what a click hits, keep the wording general ("click the button in the
-   top right") rather than guessing a name.
+   This prints each recording's events in order, with idle gaps marked, and
+   saves a few key screenshots to `<recordings folder>/director_frames/`. It
+   ends with a **Key screenshots** list and an estimate of their token cost.
+   To keep that cost low, it skips screenshots that wouldn't add anything,
+   and the event log notes why next to each skipped event:
+   - repeat clicks on the same spot share one screenshot;
+   - starting and stopping the recorder (a different window at the very
+     start or end) gets none;
+   - typing gets none, because the typed text is in the log.
+
+   Each screenshot is taken just before its click, with a red crosshair on
+   the spot. There are two kinds:
+   - `..._overview_...`: the full screen, saved when it changed a lot (a new
+     page or dialog), with an enlarged view of the click area in a corner;
+   - `..._detail_...`: a close-up around the click, for clicks on a screen
+     already shown.
+
+   At most 12 are saved (`--max-images N` to change that). Lower it for long
+   recordings if you only need the main screens.
+
+   **Open only the files in the Key screenshots list**, in order, and don't
+   browse the folder for others. Use them to name what was clicked
+   exactly as it appears on screen ("New", "Blank presentation", "Untitled
+   presentation"), to understand each step, and to choose `highlight_box`
+   areas and arrow directions that point away from busy parts of the screen.
+   The event log, window titles and typed text fill in the rest. If you can't
+   view images, work from those alone, and keep the wording general where
+   you're unsure ("click the button in the top right") rather than guessing a
+   name.
+
+   The screenshots show the user's real screen. Use them only to direct the
+   video: don't copy names, email addresses or other personal details from
+   them into the script or props.
 
 3. **Plan the video before writing JSON.** Work out:
    - the steps of the task, and which events and recording time ranges
