@@ -136,7 +136,18 @@ Don't open or play the video files any other way.
    example, a click deliberately sped past without an arrow), and mention any
    you leave.
 
-7. **Report back** briefly:
+7. **Clean up.** Delete the screenshots, so the recordings folder holds only
+   the recordings, metadata.json and the timeline:
+
+   ```bash
+   python <skill-dir>/scripts/inspect_recordings.py <path/to/metadata.json> --clean
+   ```
+
+   Do this even if you stop early. Don't create any other files in the
+   recordings folder (notes, drafts, backups); keep working notes in your
+   head or in chat.
+
+8. **Report back** briefly:
    - where the timeline is and its total length;
    - a short outline of the segments (type, length, one line each);
    - any assumptions you made and any warnings you left in place.
@@ -156,3 +167,5 @@ Don't open or play the video files any other way.
   it by `event_id`.
 - `cartoon_silent` has no script. `cartoon_talking` always has one.
 - Never put passwords, tokens or other secrets in the script or props.
+- Leave the recordings folder as you found it plus the timeline: delete the
+  screenshots when you're done.

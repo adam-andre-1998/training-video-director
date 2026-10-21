@@ -19,6 +19,7 @@ Usage:
     python inspect_recordings.py path/to/metadata.json
     python inspect_recordings.py path/to/metadata.json --max-images 8
     python inspect_recordings.py path/to/metadata.json --no-frames   # event log only
+    python inspect_recordings.py path/to/metadata.json --clean       # delete the screenshots
 
 Screenshots need opencv-python (in the project's requirements.txt). The event
 log uses only the standard library.
@@ -262,6 +263,19 @@ def render(m, out_dir, index):
     return math.ceil(out.shape[0] * out.shape[1] / 750)
 
 
+def clean(out_dir):
+    """Deletes this script's screenshots, and the folder too if nothing else is in it."""
+    if not out_dir.is_dir():
+        return 0
+    removed = 0
+    for old in out_dir.glob("rec*.png"):
+        old.unlink()
+        removed += 1
+    if not any(out_dir.iterdir()):
+        out_dir.rmdir()
+    return removed
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("metadata", help="path to metadata.json")
@@ -270,9 +284,17 @@ def main():
     p.add_argument("--max-images", type=int, default=DEFAULT_MAX_IMAGES,
                    help=f"most screenshots to save in total (default: {DEFAULT_MAX_IMAGES})")
     p.add_argument("--no-frames", action="store_true", help="only print the event log")
+    p.add_argument("--clean", action="store_true", help="delete the screenshots from an earlier run and exit")
     args = p.parse_args()
 
     meta_path = Path(args.metadata)
+    out_dir = Path(args.out) if args.out else meta_path.parent / "director_frames"
+    if args.clean:
+        removed = clean(out_dir)
+        print(f"Deleted {removed} screenshot(s)" + (f"; kept {out_dir} because it has other files in it"
+                                                     if out_dir.exists() else ""))
+        return
+
     with open(meta_path, encoding="utf-8") as f:
         recordings = json.load(f).get("recordings", [])
     if args.recording:
@@ -297,10 +319,8 @@ def main():
     if not frames:
         return
 
-    out_dir = Path(args.out) if args.out else meta_path.parent / "director_frames"
+    clean(out_dir)  # screenshots from an earlier run would be misleading
     out_dir.mkdir(parents=True, exist_ok=True)
-    for old in out_dir.glob("rec*.png"):  # screenshots from earlier runs would be misleading
-        old.unlink()
 
     candidates = []
     for rec, moments, _ in plans:

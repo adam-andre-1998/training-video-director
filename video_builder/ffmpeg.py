@@ -28,6 +28,7 @@ class VideoWriter:
         if audio:
             cmd += ["-c:a", "aac", "-b:a", "160k", "-shortest"]
         cmd += ["-movflags", "+faststart", str(path)]
+        self._log_path = log_path
         self._log = open(log_path, "w") if log_path else subprocess.DEVNULL
         self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=self._log)
 
@@ -40,4 +41,6 @@ class VideoWriter:
         if self._log is not subprocess.DEVNULL:
             self._log.close()
         if code:
-            raise RuntimeError(f"ffmpeg exited with code {code}")
+            # The log may live in a temporary folder, so put its contents in the error.
+            detail = open(self._log_path).read().strip()[-2000:] if self._log_path else ""
+            raise RuntimeError(f"ffmpeg exited with code {code}" + (f":\n{detail}" if detail else ""))

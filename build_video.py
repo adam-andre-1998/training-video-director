@@ -10,15 +10,20 @@ Steps: generate narration with text-to-speech (Kokoro by default), lengthen
 any segment whose narration runs long, mix the narration track, then render
 every frame (screen recordings inside a laptop, the presenter lip-synced to the
 narration, title cards and props) and encode it with ffmpeg.
+
+The video is saved to output/<title>.mp4 unless -o says otherwise. Narration
+audio and other working files go in a temporary folder that is deleted when
+the build finishes, so the recordings folder is left untouched.
 """
 
 import argparse
 import re
+import tempfile
 import time
 from pathlib import Path
 
 from video_builder import audio, timeline as tl, tts
-from video_builder.config import FPS, HEIGHT, WIDTH
+from video_builder.config import FPS, HEIGHT, OUTPUT_DIR, WIDTH
 from video_builder.ffmpeg import VideoWriter
 from video_builder.render import Renderer
 
@@ -27,10 +32,40 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "video"
 
 
+def build(timeline, output, work_dir, width, height, fps, tts_engine, voice):
+    print(f"Narrating {sum(1 for s in timeline.segments if s.script.strip())} segment(s) with {tts_engine}...")
+    speech = tts.synthesize({s.id: s.script for s in timeline.segments}, work_dir / "tts",
+                            timeline.words_per_minute, voice, tts_engine)
+    for seg in timeline.segments:
+        if seg.id in speech:
+            seg.audio_path, seg.speech = speech[seg.id]
+    for note in tl.fit_to_speech(timeline):
+        print(f"  {note}")
+
+    narration = audio.build_narration(
+        [(seg.start + seg.script_offset, seg.audio_path) for seg in timeline.segments if seg.audio_path],
+        timeline.duration, work_dir / "narration.wav")
+    total = int(round(timeline.duration * fps))
+    loudness = audio.loudness(narration, fps, total)
+
+    print(f"Rendering {timeline.duration:.1f}s at {width}x{height} {fps} fps -> {output}")
+    renderer = Renderer(timeline, width, height, fps, loudness)
+    writer = VideoWriter(output, width, height, fps, audio=narration, log_path=work_dir / "ffmpeg.log")
+    started = time.time()
+    try:
+        for i, frame in enumerate(renderer.frames(), 1):
+            writer.write(frame)
+            if i % (fps * 5) == 0 or i == total:
+                elapsed = time.time() - started
+                print(f"  {i / fps:6.1f}s / {timeline.duration:.1f}s  ({elapsed:.0f}s elapsed)", flush=True)
+    finally:
+        writer.close()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("timeline", nargs="?", help="path to timeline.json")
-    p.add_argument("-o", "--output", help="output .mp4 (default: <title>.mp4 next to the timeline)")
+    p.add_argument("-o", "--output", help="output .mp4 (default: output/<title>.mp4 in the project)")
     p.add_argument("--tts", choices=["kokoro", "windows"], default="kokoro",
                    help="text-to-speech engine (default: kokoro)")
     p.add_argument("--voice", help="voice name: a Kokoro voice like af_heart, or part of a Windows voice name")
@@ -46,37 +81,15 @@ def main():
 
     width, height, fps = (960, 540, 15) if args.preview else (WIDTH, HEIGHT, FPS)
     timeline = tl.load(args.timeline)
-    output = Path(args.output) if args.output else timeline.path.parent / f"{slug(timeline.title)}.mp4"
-    build_dir = timeline.path.parent / ".build" / timeline.path.stem
-    build_dir.mkdir(parents=True, exist_ok=True)
+    output = Path(args.output) if args.output else OUTPUT_DIR / f"{slug(timeline.title)}.mp4"
+    output.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Narrating {sum(1 for s in timeline.segments if s.script.strip())} segment(s) with {args.tts}...")
-    speech = tts.synthesize({s.id: s.script for s in timeline.segments}, build_dir / "tts",
-                            timeline.words_per_minute, args.voice, args.tts)
-    for seg in timeline.segments:
-        if seg.id in speech:
-            seg.audio_path, seg.speech = speech[seg.id]
-    for note in tl.fit_to_speech(timeline):
-        print(f"  {note}")
-
-    narration = audio.build_narration(
-        [(seg.start + seg.script_offset, seg.audio_path) for seg in timeline.segments if seg.audio_path],
-        timeline.duration, build_dir / "narration.wav")
-    total = int(round(timeline.duration * fps))
-    loudness = audio.loudness(narration, fps, total)
-
-    print(f"Rendering {timeline.duration:.1f}s at {width}x{height} {fps} fps -> {output}")
-    renderer = Renderer(timeline, width, height, fps, loudness)
-    writer = VideoWriter(output, width, height, fps, audio=narration, log_path=build_dir / "ffmpeg.log")
-    started = time.time()
-    try:
-        for i, frame in enumerate(renderer.frames(), 1):
-            writer.write(frame)
-            if i % (fps * 5) == 0 or i == total:
-                elapsed = time.time() - started
-                print(f"  {i / fps:6.1f}s / {timeline.duration:.1f}s  ({elapsed:.0f}s elapsed)", flush=True)
-    finally:
-        writer.close()
+    with tempfile.TemporaryDirectory(prefix="training-video-") as work_dir:
+        try:
+            build(timeline, output, Path(work_dir), width, height, fps, args.tts, args.voice)
+        except BaseException:
+            output.unlink(missing_ok=True)  # don't leave a half-written video behind
+            raise
     print(f"Done: {output}")
 
 

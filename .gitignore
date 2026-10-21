@@ -1,10 +1,10 @@
 # Screen recordings, their metadata (typed text, window titles), timelines and
 # rendered videos are personal: never commit them.
 recordings/
+output/
 *.mp4
 *.wav
 director_frames/
-.build/
 
 # Python
 __pycache__/
