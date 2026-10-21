@@ -10,6 +10,7 @@ in a clip has an arrow and a click ripple.
 Usage:
     python validate_timeline.py path/to/timeline.json
     python validate_timeline.py path/to/timeline.json --fix   # rewrite ids, starts, total_duration
+    python validate_timeline.py path/to/timeline.json --outline   # segment table, then the checks
     python validate_timeline.py timeline.json --metadata recordings/metadata.json
 
 Exits with status 1 if there are errors.
@@ -20,6 +21,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 SEGMENT_TYPES = {"title_card", "cartoon_talking", "cartoon_silent", "screen_recording", "screen_still"}
@@ -389,11 +391,49 @@ def validate(timeline, timeline_path, metadata_override=None):
     return r
 
 
+def clock(t):
+    return f"{int(t // 60)}:{t % 60:04.1f}"
+
+
+def print_outline(timeline):
+    """One line per segment: where it is in the video, what it shows, its props and script."""
+    voice = timeline.get("voice") if isinstance(timeline.get("voice"), dict) else {}
+    wpm = voice.get("words_per_minute", 150) if num(voice.get("words_per_minute", 150)) else 150
+    print(f"{timeline.get('title', '(untitled)')}: {timeline.get('total_duration', '?')}s, "
+          f"{len(timeline.get('segments') or [])} segments")
+    for seg in timeline.get("segments") or []:
+        if not isinstance(seg, dict):
+            continue
+        start = seg.get("start", 0) if num(seg.get("start")) else 0
+        dur = seg.get("duration", 0) if num(seg.get("duration")) else 0
+        src = seg.get("source") if isinstance(seg.get("source"), dict) else {}
+        if seg.get("type") == "screen_recording":
+            what = (f"rec {src.get('recording_id')} {src.get('clip_start')}-{src.get('clip_end')}s"
+                    + (f" x{src.get('speed')}" if src.get("speed", 1) != 1 else ""))
+        elif seg.get("type") == "screen_still":
+            what = f"rec {src.get('recording_id')} @ {src.get('time')}s"
+        elif seg.get("type") == "title_card":
+            what = repr((seg.get("text") or {}).get("title", ""))[:40]
+        else:
+            what = ""
+        if seg.get("presenter", "none") != "none":
+            what += f" +presenter {seg['presenter']}"
+        kinds = Counter(p.get("type") for p in seg.get("props", []) if isinstance(p, dict))
+        props = ", ".join(f"{n} {k}" for k, n in kinds.items()) or "-"
+        script = " ".join(str(seg.get("script") or "").split())
+        words = len(script.split())
+        said = f'{words}w/{words / (wpm / 60):.1f}s "{script[:48]}{"..." if len(script) > 48 else ""}"' if words else "(silent)"
+        print(f"  {seg.get('id', '?'):>3} {clock(start)}-{clock(start + dur)} {dur:5.1f}s "
+              f"{str(seg.get('type', '?')):<16} {what:<30} props: {props:<28} {said}")
+    print()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("timeline", help="path to timeline.json")
     p.add_argument("--metadata", help="path to metadata.json (default: the timeline's metadata_file)")
     p.add_argument("--fix", action="store_true", help="rewrite segment ids, starts and total_duration")
+    p.add_argument("--outline", action="store_true", help="print a one-line-per-segment outline first")
     args = p.parse_args()
 
     path = Path(args.timeline)
@@ -411,6 +451,8 @@ def main():
             json.dump(timeline, f, indent=2, ensure_ascii=False)
             f.write("\n")
         print(f"Rewrote ids, starts and total_duration ({timeline['total_duration']}s) in {path}")
+    if args.outline:
+        print_outline(timeline)
 
     report = validate(timeline, path, args.metadata)
     for msg in report.errors:
