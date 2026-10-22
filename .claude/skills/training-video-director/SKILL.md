@@ -224,8 +224,11 @@ Don't open or play the video files any other way.
    for it to finish. Lines spoken in an earlier build are reused, so
    rebuilds are faster still. It prints a line for each segment it had
    to lengthen because the real narration ran long; note those for your
-   report. If it fails, fix the cause and build again; don't hand the user
-   a command to run instead.
+   report. If it says it used the Windows voices because the Kokoro model
+   files weren't found, say so in your report and point the user to the
+   README's section on blocked model files; don't try to download them. If
+   the build fails, fix the cause and build again; don't hand the user a
+   command to run instead.
 
 9. **Report back** briefly:
     - where the video is and how long it is, and where the timeline is;

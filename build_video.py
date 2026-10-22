@@ -7,7 +7,8 @@ Build a narrated training video from a director timeline.json.
     python build_video.py recordings/timeline.json --preview      # fast, half size
     python build_video.py --list-voices
 
-Steps: generate narration with text-to-speech (Kokoro by default), lengthen
+Steps: generate narration with text-to-speech (Kokoro, or the built-in
+Windows voices where the Kokoro model files aren't available), lengthen
 any segment whose narration runs long, mix the narration track, then render
 every frame (screen recordings inside a laptop, the presenter lip-synced to the
 narration, title cards and props), encode it with ffmpeg, and open the video.
@@ -136,8 +137,9 @@ def main():
     p.add_argument("timeline", nargs="?",
                    help="path to timeline.json (default: the newest timeline*.json under recordings/)")
     p.add_argument("-o", "--output", help="output .mp4 (default: output/<title>.mp4 in the project)")
-    p.add_argument("--tts", choices=tts.ENGINES, default="kokoro",
-                   help="text-to-speech engine (default: kokoro)")
+    p.add_argument("--tts", choices=tts.ENGINES, default="auto",
+                   help="text-to-speech engine (default: auto = kokoro if its model files are found, "
+                        "else windows)")
     p.add_argument("--voice", help="voice name: a Kokoro voice like af_heart, or part of a Windows voice name")
     p.add_argument("--preview", action="store_true", help="render at 960x540, 15 fps for a quick look")
     p.add_argument("--no-open", action="store_true", help="don't open the video when it's done")
@@ -156,6 +158,7 @@ def main():
     if not args.timeline:
         print(f"Building {timeline_path}")
 
+    engine, voice = tts.resolve_engine(args.tts, args.voice)
     width, height, fps = (960, 540, 15) if args.preview else (WIDTH, HEIGHT, FPS)
     timeline = tl.load(timeline_path)
     output = Path(args.output) if args.output else OUTPUT_DIR / f"{slug(timeline.title)}.mp4"
@@ -164,7 +167,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="training-video-") as work_dir:
         try:
-            build(timeline, output, Path(work_dir), width, height, fps, args.tts, args.voice,
+            build(timeline, output, Path(work_dir), width, height, fps, engine, voice,
                   None if args.no_cache else TTS_CACHE, args.jobs)
         except BaseException:
             output.unlink(missing_ok=True)  # don't leave a half-written video behind

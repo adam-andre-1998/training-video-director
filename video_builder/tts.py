@@ -2,23 +2,78 @@
 
 Two engines, behind one function, `synthesize`:
 
-- "kokoro" (default): the Kokoro neural voice model, run locally with
-  kokoro-onnx. Natural-sounding, offline. Model files live in assets/tts/kokoro/.
+- "kokoro": the Kokoro neural voice model, run locally with kokoro-onnx.
+  Natural-sounding, offline. Model files are looked for in the folders in
+  config.KOKORO_DIRS (assets/tts/kokoro/ by default).
 - "windows": the built-in Windows (SAPI5) voices via pyttsx3, as a fallback.
+
+"auto" (the default) picks Kokoro when its model files and kokoro-onnx are
+available, and the Windows voices otherwise, so a machine that can't
+download the model can still build videos.
 """
 
 import hashlib
 import json
 import os
+import sys
 import time
 import wave
 from pathlib import Path
 
 import numpy as np
 
-from .config import KOKORO_MODEL, KOKORO_RATE, KOKORO_VOICE, KOKORO_VOICES, TTS_CACHE_DAYS
+from .config import (KOKORO_DIRS, KOKORO_DOWNLOAD, KOKORO_MODELS, KOKORO_RATE, KOKORO_VOICE, KOKORO_VOICES,
+                     TTS_CACHE_DAYS)
 
-ENGINES = ("kokoro", "windows")
+ENGINES = ("auto", "kokoro", "windows")
+
+
+def find_kokoro():
+    """(model path, voices path) from the first folders in KOKORO_DIRS that have them, or None."""
+    def first(names):
+        return next((d / n for d in KOKORO_DIRS for n in names if (d / n).is_file()), None)
+    model, voices = first(KOKORO_MODELS), first([KOKORO_VOICES])
+    return (model, voices) if model and voices else None
+
+
+def kokoro_problem():
+    """Why Kokoro can't be used here, or None if it can."""
+    try:
+        import kokoro_onnx  # noqa: F401
+    except ImportError:
+        return "the kokoro-onnx package isn't installed (pip install kokoro-onnx)"
+    if find_kokoro() is None:
+        where = "\n".join(f"  {d}" for d in KOKORO_DIRS)
+        return (f"its model files ({KOKORO_MODELS[0]} and {KOKORO_VOICES}) aren't in any of:\n{where}\n"
+                f"Download them from {KOKORO_DOWNLOAD}, or copy them from another machine, into one of\n"
+                "those folders, or set KOKORO_DIR to the folder that has them")
+    return None
+
+
+def resolve_engine(engine, voice=None):
+    """The engine to use for `engine` ("auto" picks one), and the voice to pass it.
+
+    With "auto" and no Kokoro, a Kokoro voice name (like af_heart) is dropped
+    so the Windows default voice is used.
+    """
+    if engine not in ENGINES:
+        raise ValueError(f"Unknown TTS engine {engine!r} (use {', '.join(ENGINES)})")
+    if engine == "kokoro":
+        problem = kokoro_problem()
+        if problem:
+            raise SystemExit(f"Can't use Kokoro: {problem}\nOr build with --tts windows for the Windows voices.")
+    if engine != "auto":
+        return engine, voice
+    problem = kokoro_problem()
+    if problem is None:
+        return "kokoro", voice
+    if sys.platform != "win32":
+        raise SystemExit(f"Can't use Kokoro: {problem}")
+    print(f"NOTE: using the built-in Windows voices, because Kokoro can't be used: {problem}")
+    if voice and "_" in voice and " " not in voice:
+        print(f"NOTE: {voice!r} is a Kokoro voice; using the default Windows voice instead")
+        voice = None
+    return "windows", voice
 
 
 def synthesize(scripts, out_dir, words_per_minute=150, voice=None, engine="kokoro", cache_dir=None):
@@ -29,8 +84,8 @@ def synthesize(scripts, out_dir, words_per_minute=150, voice=None, engine="kokor
     voice and rate, so rebuilding after a small change only speaks the lines
     that changed.
     """
-    if engine not in ENGINES:
-        raise ValueError(f"Unknown TTS engine {engine!r} (use 'kokoro' or 'windows')")
+    if engine not in ENGINES[1:]:
+        raise ValueError(f"Unknown TTS engine {engine!r} (resolve 'auto' with resolve_engine first)")
     folder = Path(cache_dir or out_dir)
     folder.mkdir(parents=True, exist_ok=True)
     jobs = {}
@@ -87,7 +142,8 @@ def clean(text):
     return " ".join(text.split())
 
 
-def list_voices(engine="kokoro"):
+def list_voices(engine="auto"):
+    engine, _ = resolve_engine(engine)
     if engine == "kokoro":
         return _kokoro_model().get_voices()
     import pyttsx3
@@ -110,12 +166,12 @@ def write_wav(path, samples, rate):
 
 # ------------------------------------------------------------------- kokoro
 def _kokoro_model():
+    problem = kokoro_problem()
+    if problem:
+        raise SystemExit(f"Can't use Kokoro: {problem}")
     from kokoro_onnx import Kokoro
-    for f in (KOKORO_MODEL, KOKORO_VOICES):
-        if not f.exists():
-            raise SystemExit(f"Missing {f}. Download it from "
-                             "https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0")
-    return Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
+    model, voices = find_kokoro()
+    return Kokoro(str(model), str(voices))
 
 
 def _kokoro(jobs, words_per_minute, voice):
