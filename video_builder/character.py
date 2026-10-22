@@ -251,10 +251,15 @@ def _over(dst_bgr, dst_a, sprite, dx=0, dy=0):
     x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)
     if x0 >= x1 or y0 >= y1:
         return
-    s_a = src_a[y0 - y:y1 - y, x0 - x:x1 - x]
-    inv = 1 - s_a
-    dst_bgr[y0:y1, x0:x1] = src_bgr[y0 - y:y1 - y, x0 - x:x1 - x] + dst_bgr[y0:y1, x0:x1] * inv[..., None]
-    dst_a[y0:y1, x0:x1] = s_a + dst_a[y0:y1, x0:x1] * inv
+    s = (slice(y0 - y, y1 - y), slice(x0 - x, x1 - x))
+    inv = 1 - src_a[s]
+    # In place, to avoid allocating temporary arrays every frame.
+    region = dst_bgr[y0:y1, x0:x1]
+    region *= inv[..., None]
+    region += src_bgr[s]
+    a = dst_a[y0:y1, x0:x1]
+    a *= inv
+    a += src_a[s]
 
 
 def _tilt(sprite, angle):

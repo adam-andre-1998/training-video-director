@@ -5,6 +5,7 @@ output/
 *.mp4
 *.wav
 director_frames/
+.cache/
 
 # Python
 __pycache__/

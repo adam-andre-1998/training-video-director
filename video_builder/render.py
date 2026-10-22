@@ -32,12 +32,16 @@ class Renderer:
         self._stills = {}    # segment id -> frame
 
     # ---------------------------------------------------------------- main loop
-    def frames(self):
-        """Yields every output frame (BGR) in order."""
+    def frames(self, first=0, last=None):
+        """Yields output frames first..last-1 (default: all of them), BGR, in order.
+
+        Every frame depends only on its own time, so separate processes can
+        render separate ranges of the same timeline.
+        """
         segments = self.timeline.segments
         total = int(round(self.timeline.duration * self.fps))
         i_seg = 0
-        for i in range(total):
+        for i in range(first, total if last is None else min(last, total)):
             T = i / self.fps
             while i_seg < len(segments) - 1 and T >= segments[i_seg].end:
                 i_seg += 1

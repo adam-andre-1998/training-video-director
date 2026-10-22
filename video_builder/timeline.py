@@ -96,8 +96,8 @@ def fit_to_speech(timeline):
         needed = seg.script_offset + seg.speech + SPEECH_TAIL if seg.speech else 0
         if needed > seg.duration + 0.01:
             how = "stretched" if seg.flexible else "last frame held"
-            notes.append(f"segment {seg.id} ({seg.type}): narration is {seg.speech:.1f}s, "
-                         f"segment {seg.duration:.1f}s -> {needed:.1f}s ({how})")
+            notes.append(f"segment {seg.id} ({seg.type}): narration is {seg.speech:.2f}s, "
+                         f"segment {seg.duration:.2f}s -> {needed:.2f}s ({how})")
             seg.duration = round(needed, 3)
         seg.start = t
         t += seg.duration

@@ -7,36 +7,77 @@ Two engines, behind one function, `synthesize`:
 - "windows": the built-in Windows (SAPI5) voices via pyttsx3, as a fallback.
 """
 
+import hashlib
+import json
+import os
+import time
 import wave
 from pathlib import Path
 
 import numpy as np
 
-from .config import KOKORO_MODEL, KOKORO_RATE, KOKORO_VOICE, KOKORO_VOICES
+from .config import KOKORO_MODEL, KOKORO_RATE, KOKORO_VOICE, KOKORO_VOICES, TTS_CACHE_DAYS
+
+ENGINES = ("kokoro", "windows")
 
 
-def synthesize(scripts, out_dir, words_per_minute=150, voice=None, engine="kokoro"):
+def synthesize(scripts, out_dir, words_per_minute=150, voice=None, engine="kokoro", cache_dir=None):
     """Writes one WAV per non-empty script.
 
-    scripts: {segment_id: text}. Returns {segment_id: (wav_path, seconds)}.
+    scripts: {segment_id: text}. Returns ({segment_id: (wav_path, seconds)}, number reused).
+    With cache_dir, each line's audio is kept there under a hash of its text,
+    voice and rate, so rebuilding after a small change only speaks the lines
+    that changed.
     """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    jobs = {seg_id: (clean(text), out_dir / f"segment_{seg_id:03d}.wav")
-            for seg_id, text in scripts.items() if text.strip()}
-    if engine == "kokoro":
-        _kokoro(jobs, words_per_minute, voice)
-    elif engine == "windows":
-        _windows(jobs, words_per_minute, voice)
-    else:
+    if engine not in ENGINES:
         raise ValueError(f"Unknown TTS engine {engine!r} (use 'kokoro' or 'windows')")
+    folder = Path(cache_dir or out_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    jobs = {}
+    for seg_id, text in scripts.items():
+        if not text.strip():
+            continue
+        text = clean(text)
+        if cache_dir:
+            resolved = voice or (KOKORO_VOICE if engine == "kokoro" else "default")
+            key = json.dumps([engine, resolved, words_per_minute, text], ensure_ascii=False)
+            name = hashlib.sha1(key.encode("utf-8")).hexdigest()[:20]
+        else:
+            name = f"segment_{seg_id:03d}"
+        jobs[seg_id] = (text, folder / f"{name}.wav")
+
+    # One job per audio file: segments with the same line share it.
+    todo = {}
+    for seg_id, (text, path) in jobs.items():
+        if not (path.exists() and path.stat().st_size) and path not in todo:
+            todo[path] = (seg_id, text)
+    if todo:
+        speak = {seg_id: (text, path.with_suffix(".tmp.wav")) for path, (seg_id, text) in todo.items()}
+        (_kokoro if engine == "kokoro" else _windows)(speak, words_per_minute, voice)
+        for seg_id, (_, tmp) in speak.items():
+            if not tmp.exists() or tmp.stat().st_size == 0:
+                raise RuntimeError(f"Text-to-speech produced no audio for segment {seg_id}")
+            os.replace(tmp, jobs[seg_id][1])  # only finished files ever get a cache name
 
     results = {}
     for seg_id, (_, path) in jobs.items():
-        if not path.exists() or path.stat().st_size == 0:
-            raise RuntimeError(f"Text-to-speech produced no audio for segment {seg_id}")
+        if cache_dir:
+            os.utime(path)  # recently used: keep it when pruning
         results[seg_id] = (path, wav_duration(path))
-    return results
+    if cache_dir:
+        prune(folder)
+    return results, len({path for _, path in jobs.values()} - set(todo))
+
+
+def prune(cache_dir, days=TTS_CACHE_DAYS):
+    """Deletes cached narration that no build has used for `days` days."""
+    cutoff = time.time() - days * 86400
+    for path in Path(cache_dir).glob("*.wav"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            pass
 
 
 def clean(text):

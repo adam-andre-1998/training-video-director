@@ -7,10 +7,16 @@ Clicks carry a timestamp (seconds from the start of the video), the matching
 frame number and the location in video pixel coordinates. Consecutive key
 presses are grouped into one "type" action with start and end timestamps.
 
+One run records a whole video, one take per step: press F9 to start a take
+and F9 again to stop it, from any window, so starting and stopping never shows
+up in the recording. After each take you can describe it in a few words, or
+type "redo" to throw it away. Press Ctrl+C in this window when you're done.
+
 Usage:
-    python screen_recorder.py                       # record until F9 / Ctrl+C
-    python screen_recorder.py -o demos -d 30        # 30 s into ./demos
-    python screen_recorder.py --fps 30 --scale 0.5 --description "Login flow"
+    python screen_recorder.py google-slides         # takes go in recordings/google-slides/
+    python screen_recorder.py                       # takes go in recordings/
+    python screen_recorder.py --now -d 30           # one take, starting now, 30 s long
+    python screen_recorder.py -o demos --fps 30 --scale 0.5
 """
 
 import argparse
@@ -225,6 +231,7 @@ class ScreenRecorder:
             self.video_path = self.output_dir / f"recording_{stamp}_{n}.mp4"
             n += 1
 
+        self.start_event = threading.Event()
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.events = []
@@ -288,8 +295,13 @@ class ScreenRecorder:
     # --------------------------------------------------------- keyboard events
     def on_press(self, key):
         if key == self.stop_key:
-            self.stop_event.set()
-            return False
+            # The same key starts a take that's waiting for it, and stops a running one
+            # (but not in the first half second, when it may just be the start key repeating).
+            if not self.start_event.is_set():
+                self.start_event.set()
+            elif self.start_time is None or self._now() > 0.5:
+                self.stop_event.set()
+            return
         if self.start_time is None or not self.record_keys:
             return
         t = self._now()
@@ -382,13 +394,39 @@ class ScreenRecorder:
             writer.release()
 
     # --------------------------------------------------------------- lifecycle
-    def record(self, duration=None):
+    def record(self, duration=None, wait_for_start=False):
+        """Records one take. Returns True if anything was recorded.
+
+        With wait_for_start, capture begins when the stop key is pressed (in
+        any window), so the take starts on the screen the user has set up and
+        the recorder's own window never appears in it. Ctrl+C before that
+        returns False without recording.
+        """
         self.capture_error = None
+        if wait_for_start and not self.stop_key:
+            raise ValueError("Unknown --stop-key; it's also the key that starts a take")
         mouse_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
         key_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         mouse_listener.start()
         key_listener.start()
+        try:
+            if wait_for_start:
+                try:
+                    while not self.start_event.wait(0.1):
+                        pass
+                except KeyboardInterrupt:
+                    return False
+            self.start_event.set()
+            self._capture(duration)
+        finally:
+            mouse_listener.stop()
+            key_listener.stop()
 
+        if self.capture_error:
+            raise self.capture_error
+        return self.frames_written > 0
+
+    def _capture(self, duration):
         self.started_at = datetime.now().astimezone()
         self.start_time = time.perf_counter()
         capture = threading.Thread(target=self._capture_loop, daemon=True)
@@ -408,14 +446,16 @@ class ScreenRecorder:
         finally:
             self.stop_event.set()
             capture.join()
-            mouse_listener.stop()
-            key_listener.stop()
 
-        if self.capture_error:
-            raise self.capture_error
-        return self._save_metadata()
+    def discard(self):
+        """Deletes the take's video without adding it to metadata.json."""
+        self.video_path.unlink(missing_ok=True)
+        print(f"Discarded {self.video_path.name}")
 
-    def _save_metadata(self):
+    def save(self, description=None):
+        """Appends the take and its events to the folder's metadata.json."""
+        if description is not None:
+            self.description = description
         with self.lock:
             self._flush_typing()
             events = sorted(self.events, key=lambda e: e.get("timestamp", e.get("start_timestamp")))
@@ -427,11 +467,7 @@ class ScreenRecorder:
             cleaned.append({"id": i + 1, **ev})
 
         meta_path = self.output_dir / METADATA_FILE
-        data = {"recordings": []}
-        if meta_path.exists():
-            with open(meta_path, encoding="utf-8") as f:
-                data = json.load(f)
-            data.setdefault("recordings", [])
+        data = load_metadata(self.output_dir)
 
         recording = {
             "id": max((r.get("id", 0) for r in data["recordings"]), default=0) + 1,
@@ -458,27 +494,90 @@ class ScreenRecorder:
         return recording
 
 
+def load_metadata(folder):
+    meta_path = Path(folder) / METADATA_FILE
+    data = {"recordings": []}
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            data = json.load(f)
+        data.setdefault("recordings", [])
+    return data
+
+
+def ask(prompt):
+    """input() that treats a closed stdin or Ctrl+C as an empty answer."""
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def record_session(make_recorder, args):
+    """Records takes until Ctrl+C. The hotkey starts and stops each one; then it's described or redone."""
+    key = args.stop_key.upper()
+    saved = []
+    while True:
+        recorder = make_recorder()
+        print(f"\nTake {len(saved) + 1}: set up the screen, then press {key} to start recording."
+              + ("  Press Ctrl+C here when you're done." if saved else ""))
+        if not recorder.record(duration=args.duration, wait_for_start=True):
+            break
+        if args.description:
+            saved.append(recorder.save())
+            continue
+        answer = ask('What does this take show? (a few words; Enter to skip, "redo" to throw it away): ')
+        if answer.lower() in ("redo", "r"):
+            recorder.discard()
+            continue
+        saved.append(recorder.save(answer))
+    return saved
+
+
 def main():
     p = argparse.ArgumentParser(description="Record the screen to MP4 with click/typing metadata.")
-    p.add_argument("-o", "--output", default="recordings", help="output folder (default: recordings)")
-    p.add_argument("-d", "--duration", type=float, help="stop automatically after N seconds")
+    p.add_argument("name", nargs="?", help="video name: takes go in recordings/<name>/ (default: recordings/)")
+    p.add_argument("-o", "--output", help="output folder, instead of one named after the video")
+    p.add_argument("-d", "--duration", type=float, help="stop each take automatically after N seconds")
+    p.add_argument("--now", action="store_true",
+                   help="record a single take, starting immediately, with no questions")
     p.add_argument("--fps", type=int, default=15, help="frames per second (default: 15)")
     p.add_argument("--monitor", type=int, default=1, help="1 = primary, 2 = second..., 0 = all monitors")
     p.add_argument("--scale", type=float, default=1.0, help="resize video, e.g. 0.5 for half size")
-    p.add_argument("--description", default="", help="text stored in the recording's description")
-    p.add_argument("--stop-key", default="f9", help="global key that stops recording (default: f9)")
+    p.add_argument("--description", default="",
+                   help="description stored with every take (skips the question after each take)")
+    p.add_argument("--stop-key", default="f9", help="global key that starts and stops takes (default: f9)")
     p.add_argument("--no-keys", action="store_true", help="don't log keyboard input")
     p.add_argument("--typing-gap", type=float, default=TYPING_GAP,
                    help=f"seconds without a key press that ends a typing action (default: {TYPING_GAP})")
     p.add_argument("--no-cursor", action="store_true", help="don't draw the cursor marker into the video")
     args = p.parse_args()
 
-    recorder = ScreenRecorder(
-        output_dir=args.output, monitor=args.monitor, fps=args.fps, scale=args.scale,
-        description=args.description, record_keys=not args.no_keys,
-        draw_cursor=not args.no_cursor, stop_key=args.stop_key, typing_gap=args.typing_gap,
-    )
-    recorder.record(duration=args.duration)
+    output = Path(args.output) if args.output else Path("recordings") / (args.name or "")
+    existing = load_metadata(output)["recordings"]
+    if existing:
+        print(f"{output} already has {len(existing)} recording(s); new takes are added after them.")
+        if not (args.name or args.output):
+            print("To start a separate video instead, give it a name:  python screen_recorder.py <video-name>")
+
+    def make_recorder():
+        return ScreenRecorder(
+            output_dir=output, monitor=args.monitor, fps=args.fps, scale=args.scale,
+            description=args.description, record_keys=not args.no_keys,
+            draw_cursor=not args.no_cursor, stop_key=args.stop_key, typing_gap=args.typing_gap,
+        )
+
+    if args.now:
+        recorder = make_recorder()
+        saved = [recorder.save()] if recorder.record(duration=args.duration) else []
+    else:
+        saved = record_session(make_recorder, args)
+
+    if not saved:
+        print("\nNothing recorded.")
+        return
+    print(f"\nRecorded {len(saved)} take(s); {output} has {len(existing) + len(saved)} recording(s) in all.")
+    print(f"Next, ask Claude Code:  make a training video from {(output / METADATA_FILE).resolve()}")
 
 
 if __name__ == "__main__":

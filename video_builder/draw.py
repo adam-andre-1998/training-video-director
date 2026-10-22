@@ -104,10 +104,13 @@ def blit_premult(canvas, bgr, alpha, x, y):
     x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + w, W), min(y + h, H)
     if x0 >= x1 or y0 >= y1:
         return
-    a = alpha[y0 - y:y1 - y, x0 - x:x1 - x, None]
-    src = bgr[y0 - y:y1 - y, x0 - x:x1 - x]
+    s = (slice(y0 - y, y1 - y), slice(x0 - x, x1 - x))
+    inv = 1 - alpha[s]
     dst = canvas[y0:y1, x0:x1]
-    dst[:] = np.clip(src * 255 + dst * (1 - a), 0, 255).astype(np.uint8)
+    # OpenCV's arithmetic is much faster than numpy's here; convertScaleAbs rounds and clips to 0..255.
+    out = cv2.multiply(dst, cv2.merge([inv, inv, inv]), dtype=cv2.CV_32F)
+    out = cv2.scaleAdd(np.ascontiguousarray(bgr[s]), 255.0, out)
+    dst[:] = cv2.convertScaleAbs(out)
 
 
 def with_opacity(canvas, opacity, draw):

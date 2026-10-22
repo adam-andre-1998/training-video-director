@@ -58,6 +58,10 @@ runtime. The recordings are the lesson.
 Converting times: a click at recording time `t` lands at
 `(t - clip_start) / speed` seconds into the segment.
 
+`validate_timeline.py --fix` adds an arrow and ripple, with this timing, for
+any click you leave without one, so you only need to write the arrows you
+want to give a `label` (usually the button's name) or a particular `from`.
+
 **Typing:**
 
 - Add a `typing_caption` from `start_timestamp` to about 1 s after

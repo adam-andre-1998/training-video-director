@@ -26,9 +26,11 @@ log uses only the standard library.
 """
 
 import argparse
+import hashlib
 import json
 import math
 import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -263,6 +265,13 @@ def render(m, out_dir, index):
     return math.ceil(out.shape[0] * out.shape[1] / 750)
 
 
+def default_out_dir(meta_path):
+    """A temp folder of its own for each recordings folder."""
+    folder = meta_path.resolve().parent
+    key = hashlib.sha1(str(folder).lower().encode("utf-8")).hexdigest()[:8]
+    return Path(tempfile.gettempdir()) / "training-video-director" / f"{folder.name}-{key}"
+
+
 def clean(out_dir):
     """Deletes this script's screenshots, and the folder too if nothing else is in it."""
     if not out_dir.is_dir():
@@ -280,15 +289,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("metadata", help="path to metadata.json")
     p.add_argument("--recording", type=int, action="append", help="only this recording id (repeatable)")
-    p.add_argument("--out", help="folder for screenshots (default: <recordings folder>/director_frames)")
+    p.add_argument("--out", help="folder for screenshots (default: a folder for these recordings in the "
+                                 "system temp folder, so the recordings folder is never touched)")
     p.add_argument("--max-images", type=int, default=DEFAULT_MAX_IMAGES,
                    help=f"most screenshots to save in total (default: {DEFAULT_MAX_IMAGES})")
     p.add_argument("--no-frames", action="store_true", help="only print the event log")
     p.add_argument("--clean", action="store_true", help="delete the screenshots from an earlier run and exit")
     args = p.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")  # typed text and window titles can have any characters
 
     meta_path = Path(args.metadata)
-    out_dir = Path(args.out) if args.out else meta_path.parent / "director_frames"
+    out_dir = Path(args.out) if args.out else default_out_dir(meta_path)
     if args.clean:
         removed = clean(out_dir)
         print(f"Deleted {removed} screenshot(s)" + (f"; kept {out_dir} because it has other files in it"

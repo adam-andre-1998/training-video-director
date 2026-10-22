@@ -9,7 +9,14 @@ in a clip has an arrow and a click ripple.
 
 Usage:
     python validate_timeline.py path/to/timeline.json
-    python validate_timeline.py path/to/timeline.json --fix   # rewrite ids, starts, total_duration
+    python validate_timeline.py path/to/timeline.json --fix   # repair what it can, then check
+
+--fix works out from the recordings what it can and rewrites the file: a
+screen clip's duration from its clip range and speed; click arrows' and
+ripples' targets, and ripples' start times, from their click events; an arrow
+and a ripple for any click in a clip that has none (except double clicks and
+clips sped up past 1.5x); props that run past their segment's end; and then
+segment ids, starts and total_duration. It prints each change.
     python validate_timeline.py path/to/timeline.json --outline   # segment table, then the checks
     python validate_timeline.py timeline.json --metadata recordings/metadata.json
 
@@ -45,6 +52,9 @@ END_ROOM = 0.3           # narration should end at least this long before its se
 TARGET_TOLERANCE = 20    # pixels between a click prop's target and the click event
 PRESENTER_SHARE = 0.4   # warn when full-screen cartoon segments exceed this share of the video
 ARROW_LEAD = 1.2         # recommended seconds an arrow appears before its click
+REPEAT_DISTANCE = 30     # a click this close (px) ...
+REPEAT_SECONDS = 1.0     # ... and this soon after the previous one repeats it (double click)
+SPED_PAST = 1.5          # clips faster than this don't need an arrow on every click
 TTS_UNFRIENDLY = re.compile(r"[\[\]{}<>*#_`|~@^=+\\]|https?://|\b(?:e\.g|i\.e|etc)\.", re.I)
 EMOJI = re.compile("[☀-➿\U0001f000-\U0001faff]")
 
@@ -82,6 +92,109 @@ def fix_timing(timeline):
             seg["duration"] = round(seg["duration"], 2)
             t += seg["duration"]
     timeline["total_duration"] = round(t, 2)
+
+
+def arrow_side(location, size):
+    """The side an arrow should come in from: the one facing the middle of the screen."""
+    (x, y), (w, h) = location, size
+    vertical = "bottom" if y < h * 0.4 else "top" if y > h * 0.6 else ""
+    horizontal = "right" if x < w * 0.4 else "left" if x > w * 0.6 else ""
+    return "-".join(p for p in (vertical, horizontal) if p) or "bottom"
+
+
+def repeat_clicks(events):
+    """Ids of clicks that repeat the click just before them (double and triple clicks)."""
+    repeats, last = set(), None
+    for ev in sorted(events, key=event_time):
+        if ev.get("action") != "click":
+            continue
+        if (last and ev["timestamp"] - last["timestamp"] <= REPEAT_SECONDS
+                and math.dist(ev["location"], last["location"]) <= REPEAT_DISTANCE):
+            repeats.add(ev["id"])
+        last = ev
+    return repeats
+
+
+def fix_segment(seg, rec, changes):
+    """Fixes what follows from the recording: clip durations, click prop times and targets,
+    missing arrows and ripples, and props running past their segment. Appends notes to changes."""
+    where = f"segment {seg.get('id')}"
+    src = seg.get("source") or {}
+    if seg.get("type") == "screen_recording":
+        cs, ce, speed = src.get("clip_start"), src.get("clip_end"), src.get("speed", 1.0)
+        if not (num(cs) and num(ce) and num(speed) and ce > cs and speed > 0):
+            return
+        duration = round((ce - cs) / speed, 2)
+        if not num(seg.get("duration")) or abs(seg["duration"] - duration) > 0.005:
+            changes.append(f"{where}: duration {seg.get('duration')} -> {duration} (clip length / speed)")
+            seg["duration"] = duration
+    if not num(seg.get("duration")) or not isinstance(seg.get("props", []), list):
+        return
+    duration = seg["duration"]
+    props = seg.setdefault("props", [])
+    events = {ev.get("id"): ev for ev in rec.get("events", [])}
+    in_clip = seg.get("type") == "screen_recording"
+
+    for prop in props:
+        if not isinstance(prop, dict):
+            continue
+        ev = events.get(prop.get("event_id"))
+        if ev and ev.get("action") == "click" and prop.get("type") in ("arrow", "click_ripple"):
+            if prop.get("target") != ev["location"]:
+                changes.append(f"{where}: {prop['type']} for event {ev['id']} target -> {ev['location']}")
+                prop["target"] = list(ev["location"])
+            if in_clip and prop["type"] == "click_ripple" and num(prop.get("start")):
+                et = round(to_segment_time(seg, ev["timestamp"]), 2)
+                if 0 <= et < duration and abs(prop["start"] - et) > 0.05:
+                    changes.append(f"{where}: click_ripple for event {ev['id']} start {prop['start']} -> {et}")
+                    prop["start"] = et
+        start, pdur = prop.get("start"), prop.get("duration")
+        if num(start) and num(pdur) and 0 <= start < duration and start + pdur > duration + 0.005:
+            new = round(duration - start, 2)
+            changes.append(f"{where}: {prop.get('type')} duration {pdur} -> {new} (ended after the segment)")
+            prop["duration"] = new
+
+    if not in_clip or src.get("speed", 1.0) > SPED_PAST:
+        return  # a sped-up stretch goes by too fast to point at each click
+    linked = {}
+    for prop in props:
+        if isinstance(prop, dict) and "event_id" in prop:
+            linked.setdefault(prop["event_id"], set()).add(prop.get("type"))
+    repeats = repeat_clicks(rec.get("events", []))
+    size = rec.get("resolution") or [1920, 1080]
+    for ev in sorted(events.values(), key=event_time):
+        if ev.get("action") != "click" or ev["id"] in repeats:
+            continue
+        et = round(to_segment_time(seg, ev["timestamp"]), 2)
+        if not 0 <= et < duration:
+            continue
+        have = linked.get(ev["id"], set())
+        if "arrow" not in have:
+            start = round(max(et - ARROW_LEAD, 0), 2)
+            props.append({"type": "arrow", "start": start,
+                          "duration": round(min(et + 0.3, duration) - start, 2),
+                          "target": list(ev["location"]), "from": arrow_side(ev["location"], size),
+                          "event_id": ev["id"]})
+            changes.append(f"{where}: added an arrow for click event {ev['id']} at {et}s")
+        if "click_ripple" not in have:
+            props.append({"type": "click_ripple", "start": et, "duration": round(min(0.6, duration - et), 2),
+                          "target": list(ev["location"]), "event_id": ev["id"]})
+            changes.append(f"{where}: added a click_ripple for click event {ev['id']} at {et}s")
+
+
+def fix(timeline, timeline_path, metadata_override=None):
+    """Applies every fix that can be worked out from the recordings, then the timing. Returns notes."""
+    changes = []
+    recordings, _ = load_metadata(timeline, timeline_path, metadata_override, Report())
+    fix_timing(timeline)  # number the segments first, so the notes can name them
+    for seg in timeline.get("segments") or []:
+        if not isinstance(seg, dict) or seg.get("type") not in SCREEN_TYPES:
+            continue
+        rec = (recordings or {}).get((seg.get("source") or {}).get("recording_id"))
+        if rec:
+            fix_segment(seg, rec, changes)
+    fix_timing(timeline)
+    return changes
 
 
 def load_metadata(timeline, timeline_path, override, r):
@@ -333,17 +446,19 @@ def check_props(seg, where, rec, r):
 
 
 def check_click_coverage(seg, where, rec, r):
-    """Every click inside a clip should have an arrow and a click ripple."""
+    """Every click inside a clip should have an arrow and a click ripple, except repeat clicks
+    and clicks in a sped-up stretch."""
     src = seg["source"]
     cs, ce = src.get("clip_start"), src.get("clip_end")
-    if not (num(cs) and num(ce)):
+    if not (num(cs) and num(ce)) or (num(src.get("speed", 1.0)) and src.get("speed", 1.0) > SPED_PAST):
         return
     linked = {}
     for prop in seg.get("props", []):
         if isinstance(prop, dict) and "event_id" in prop:
             linked.setdefault(prop["event_id"], set()).add(prop.get("type"))
+    repeats = repeat_clicks(rec.get("events", []))
     for ev in rec.get("events", []):
-        if ev.get("action") != "click" or not cs <= ev["timestamp"] <= ce:
+        if ev.get("action") != "click" or not cs <= ev["timestamp"] <= ce or ev["id"] in repeats:
             continue
         missing = {"arrow", "click_ripple"} - linked.get(ev["id"], set())
         if missing:
@@ -435,6 +550,7 @@ def main():
     p.add_argument("--fix", action="store_true", help="rewrite segment ids, starts and total_duration")
     p.add_argument("--outline", action="store_true", help="print a one-line-per-segment outline first")
     args = p.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")  # scripts and typed text can have any characters
 
     path = Path(args.timeline)
     try:
@@ -446,11 +562,13 @@ def main():
         sys.exit("ERROR: timeline must be a JSON object")
 
     if args.fix:
-        fix_timing(timeline)
+        changes = fix(timeline, path, args.metadata)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(timeline, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        print(f"Rewrote ids, starts and total_duration ({timeline['total_duration']}s) in {path}")
+        for note in changes:
+            print(f"FIXED    {note}")
+        print(f"Rewrote ids, starts and total_duration ({timeline['total_duration']}s) in {path}\n")
     if args.outline:
         print_outline(timeline)
 

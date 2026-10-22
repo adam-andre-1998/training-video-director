@@ -5,6 +5,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
 OUTPUT_DIR = ROOT / "output"   # finished videos go here by default
+RECORDINGS_DIR = ROOT / "recordings"
+TTS_CACHE = ROOT / ".cache" / "tts"   # narration audio reused between builds
+TTS_CACHE_DAYS = 30                   # cached narration unused this long is deleted
 
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
 
